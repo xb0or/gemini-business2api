@@ -3,10 +3,13 @@ import random
 import string
 import time
 from typing import Optional
+from urllib.parse import urlparse
 
 import requests
+from requests import Response
 
 from core.mail_utils import extract_verification_code
+from core.outbound_proxy import no_proxy_matches
 
 
 class DuckMailClient:
@@ -16,13 +19,17 @@ class DuckMailClient:
         self,
         base_url: str = "https://api.duckmail.sbs",
         proxy: str = "",
+        no_proxy: str = "",
+        direct_fallback: bool = False,
         verify_ssl: bool = True,
         api_key: str = "",
         log_callback=None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.verify_ssl = verify_ssl
-        self.proxies = {"http": proxy, "https": proxy} if proxy else None
+        self.proxy_url = (proxy or "").strip()
+        self.no_proxy = no_proxy or ""
+        self.direct_fallback = bool(direct_fallback)
         self.api_key = api_key.strip()
         self.log_callback = log_callback
 
@@ -35,6 +42,24 @@ class DuckMailClient:
         self.email = email
         self.password = password
 
+    def _build_proxies(self, url: str) -> Optional[dict]:
+        if not self.proxy_url:
+            return None
+        host = (urlparse(url).hostname or "").lower()
+        if host and no_proxy_matches(host, self.no_proxy):
+            return None
+        return {"http": self.proxy_url, "https": self.proxy_url}
+
+    def _request_once(self, method: str, url: str, proxies: Optional[dict], **kwargs) -> Response:
+        return requests.request(
+            method,
+            url,
+            proxies=proxies,
+            verify=self.verify_ssl,
+            timeout=kwargs.pop("timeout", 15),
+            **kwargs,
+        )
+
     def _request(self, method: str, url: str, **kwargs) -> requests.Response:
         """发送请求并打印详细日志"""
         headers = kwargs.pop("headers", None) or {}
@@ -45,15 +70,12 @@ class DuckMailClient:
         if "json" in kwargs:
             self._log("info", f"📦 请求体: {kwargs['json']}")
 
+        proxies = self._build_proxies(url)
         try:
-            res = requests.request(
-                method,
-                url,
-                proxies=self.proxies,
-                verify=self.verify_ssl,
-                timeout=kwargs.pop("timeout", 15),
-                **kwargs,
-            )
+            res = self._request_once(method, url, proxies, **kwargs)
+            if res.status_code == 407 and proxies and self.direct_fallback:
+                self._log("warning", "⚠️ 代理认证失败(407)，尝试直连重试一次")
+                res = self._request_once(method, url, None, **kwargs)
             self._log("info", f"📥 收到响应: HTTP {res.status_code}")
             log_body = os.getenv("DUCKMAIL_LOG_BODY", "").strip().lower() in ("1", "true", "yes", "y", "on")
             if res.content and (log_body or res.status_code >= 400):
@@ -63,6 +85,15 @@ class DuckMailClient:
                     pass
             return res
         except Exception as e:
+            if proxies and self.direct_fallback:
+                self._log("warning", f"⚠️ 代理请求失败，尝试直连重试一次: {type(e).__name__}")
+                try:
+                    res = self._request_once(method, url, None, **kwargs)
+                    self._log("info", f"📥 收到响应(直连): HTTP {res.status_code}")
+                    return res
+                except Exception as direct_exc:
+                    self._log("error", f"❌ 直连重试失败: {type(direct_exc).__name__}: {direct_exc}")
+                    raise
             self._log("error", f"❌ 网络请求失败: {e}")
             raise
 

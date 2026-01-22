@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field, validator
 from dotenv import load_dotenv
 
 from core import storage
+from core.outbound_proxy import OutboundProxyConfig
 
 # 加载 .env 文件
 load_dotenv()
@@ -46,6 +47,7 @@ class BasicConfig(BaseModel):
     api_key: str = Field(default="", description="API访问密钥（留空则公开访问）")
     base_url: str = Field(default="", description="服务器URL（留空则自动检测）")
     proxy: str = Field(default="", description="代理地址")
+    outbound_proxy: OutboundProxyConfig = Field(default_factory=OutboundProxyConfig, description="出站代理（结构化配置）")
     duckmail_base_url: str = Field(default="https://api.duckmail.sbs", description="DuckMail API地址")
     duckmail_api_key: str = Field(default="", description="DuckMail API key")
     duckmail_verify_ssl: bool = Field(default=True, description="DuckMail SSL校验")

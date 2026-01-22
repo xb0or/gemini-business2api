@@ -4,10 +4,12 @@ import string
 import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 import requests
 
 from core.mail_utils import extract_verification_code
+from core.outbound_proxy import no_proxy_matches
 
 
 class GPTMailClient:
@@ -17,18 +19,21 @@ class GPTMailClient:
         self,
         base_url: str = "https://mail.chatgpt.org.uk",
         proxy: str = "",
+        no_proxy: str = "",
+        direct_fallback: bool = False,
         verify_ssl: bool = True,
         api_key: str = "",
         log_callback=None,
     ) -> None:
         self.base_url = (base_url or "").rstrip("/")
         self.verify_ssl = verify_ssl
-        self.proxies = {"http": proxy, "https": proxy} if proxy else None
+        self.proxy_url = (proxy or "").strip()
+        self.no_proxy = no_proxy or ""
+        self.direct_fallback = bool(direct_fallback)
         self.api_key = (api_key or "").strip()
         self.log_callback = log_callback
 
         self.email: Optional[str] = None
-        self.last_error: Optional[str] = None
 
     def set_credentials(self, email: str, password: Optional[str] = None) -> None:
         self.email = email
@@ -39,25 +44,6 @@ class GPTMailClient:
                 self.log_callback(level, message)
             except Exception:
                 pass
-        if level in ("error", "warning") and message:
-            self.last_error = message
-
-    def _parse_error(self, res: requests.Response) -> str:
-        try:
-            if res.content:
-                body = res.json()
-                if isinstance(body, dict):
-                    err = body.get("error")
-                    if isinstance(err, str) and err.strip():
-                        return err.strip()
-        except Exception:
-            pass
-        try:
-            if res.text:
-                return res.text.strip()[:200]
-        except Exception:
-            pass
-        return ""
 
     def _request(self, method: str, url: str, **kwargs) -> requests.Response:
         headers = kwargs.pop("headers", None) or {}
@@ -71,15 +57,31 @@ class GPTMailClient:
         if "json" in kwargs and kwargs["json"] is not None:
             self._log("info", f"📦 请求体: {kwargs['json']}")
 
+        proxies = None
+        if self.proxy_url:
+            host = (urlparse(url).hostname or "").lower()
+            if not (host and no_proxy_matches(host, self.no_proxy)):
+                proxies = {"http": self.proxy_url, "https": self.proxy_url}
+
         try:
             res = requests.request(
                 method,
                 url,
-                proxies=self.proxies,
+                proxies=proxies,
                 verify=self.verify_ssl,
                 timeout=kwargs.pop("timeout", 15),
                 **kwargs,
             )
+            if res.status_code == 407 and proxies and self.direct_fallback:
+                self._log("warning", "⚠️ 代理认证失败(407)，尝试直连重试一次")
+                res = requests.request(
+                    method,
+                    url,
+                    proxies=None,
+                    verify=self.verify_ssl,
+                    timeout=15,
+                    **kwargs,
+                )
             self._log("info", f"📥 收到响应: HTTP {res.status_code}")
             log_body = os.getenv("GPTMAIL_LOG_BODY", "").strip().lower() in ("1", "true", "yes", "y", "on")
             if res.content and (log_body or res.status_code >= 400):
@@ -89,12 +91,23 @@ class GPTMailClient:
                     pass
             return res
         except Exception as exc:
+            if proxies and self.direct_fallback:
+                self._log("warning", f"⚠️ 代理请求失败，尝试直连重试一次: {type(exc).__name__}")
+                res = requests.request(
+                    method,
+                    url,
+                    proxies=None,
+                    verify=self.verify_ssl,
+                    timeout=kwargs.pop("timeout", 15),
+                    **kwargs,
+                )
+                self._log("info", f"📥 收到响应(直连): HTTP {res.status_code}")
+                return res
             self._log("error", f"❌ 网络请求失败: {exc}")
             raise
 
     def generate_email(self, domain: Optional[str] = None) -> Optional[str]:
         """生成一个新的邮箱地址。"""
-        self.last_error = None
         if not self.base_url:
             self._log("error", "❌ GPTMail base_url 为空")
             return None
@@ -110,27 +123,8 @@ class GPTMailClient:
         url = f"{self.base_url}/api/generate-email"
         try:
             res = self._request("POST", url, json=payload)
-            if res.status_code == 429:
-                detail = self._parse_error(res)
-                extra = ""
-                if "daily quota exceeded" in (detail or "").lower():
-                    extra = "（GPTMail 日额度已用尽）"
-                if not self.api_key:
-                    extra += "（未配置 GPTMail API Key）"
-                if self.api_key == "gpt-test":
-                    extra += "（当前使用公共测试 Key: gpt-test，额度可能随时耗尽）"
-                self._log(
-                    "error",
-                    f"❌ GPTMail 请求被限流/额度不足: HTTP 429{extra}"
-                    + (f" - {detail}" if detail else ""),
-                )
-                return None
             if res.status_code != 200:
-                detail = self._parse_error(res)
-                self._log(
-                    "error",
-                    f"❌ 生成邮箱失败: HTTP {res.status_code}" + (f" - {detail}" if detail else ""),
-                )
+                self._log("error", f"❌ 生成邮箱失败: HTTP {res.status_code}")
                 return None
             body = res.json() if res.content else {}
             if not body.get("success"):
@@ -249,4 +243,3 @@ class GPTMailClient:
 
         self._log("error", "❌ 验证码获取超时")
         return None
-
