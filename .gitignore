@@ -40,6 +40,7 @@ ENV/
 data/
 logs/
 static/
+helloagents/
 
 # OS
 .DS_Store
