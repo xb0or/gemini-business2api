@@ -520,7 +520,7 @@
             <div class="rounded-2xl border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
               <p>默认域名（可在配置面板修改，推荐使用）</p>
               <p v-if="registerMailProvider === 'gptmail'" class="mt-1">
-                GPTMail 需要在配置面板填写你自己的 API Key（公共测试 Key 可能随时额度耗尽）
+                GPTMail 使用 API Key（X-API-Key）鉴权，可理解为邮箱服务的“密码”（公共测试 Key 可能随时额度耗尽）
               </p>
               <p class="mt-1">注册失败建议关闭无头浏览器再试</p>
             </div>
@@ -541,12 +541,12 @@
             <textarea
               v-model="importText"
               class="min-h-[140px] w-full rounded-2xl border border-input bg-background px-3 py-2 text-xs font-mono"
-              placeholder="duckmail----you@example.com----password&#10;gptmail----you@example.com&#10;user@outlook.com----loginPassword----clientId----refreshToken"
+              placeholder="duckmail----you@example.com----password&#10;gptmail----you@example.com----apiKey&#10;user@outlook.com----loginPassword----clientId----refreshToken"
             ></textarea>
             <div class="rounded-2xl border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
               <p>支持两种格式：</p>
               <p class="mt-1 font-mono">duckmail----email----password</p>
-              <p class="mt-1 font-mono">gptmail----email</p>
+              <p class="mt-1 font-mono">gptmail----email----apiKey（可选）</p>
               <p class="mt-1 font-mono">email----password----clientId----refreshToken</p>
               <p class="mt-2">导入后请执行一次"刷新选中"以获取 Cookie。</p>
               <p class="mt-1">注册失败建议关闭无头浏览器再试</p>
@@ -1130,6 +1130,7 @@ const parseImportLines = (raw: string) => {
         return
       }
       const email = parts[1]
+      const apiKey = parts.length >= 3 ? parts.slice(2).join('----') : ''
       items.push({
         id: email,
         secure_c_ses: '',
@@ -1138,7 +1139,7 @@ const parseImportLines = (raw: string) => {
         expires_at: IMPORT_EXPIRES_AT,
         mail_provider: 'gptmail',
         mail_address: email,
-        mail_password: '',
+        mail_password: apiKey,
       })
       return
     }
@@ -1195,7 +1196,8 @@ const buildTextExport = (list: AccountConfigItem[]) => {
         skipped += 1
         return
       }
-      lines.push(`gptmail----${email}`)
+      const apiKey = String(item.mail_password || '').trim()
+      lines.push(apiKey ? `gptmail----${email}----${apiKey}` : `gptmail----${email}`)
       return
     }
 

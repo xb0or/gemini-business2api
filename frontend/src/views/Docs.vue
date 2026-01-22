@@ -205,7 +205,7 @@
                 <p class="mt-3">如果你使用 GPTMail：</p>
                 <ul class="mt-2 space-y-1 pl-4">
                   <li>• 前往本系统"配置面板"，找到"GPTMail 配置"部分</li>
-                  <li>• 填写你自己的 GPTMail API Key（公共测试 Key 可能随时额度耗尽）</li>
+                  <li>• 填写 GPTMail API Key（X-API-Key，可理解为邮箱服务的“密码”；公共测试 Key 可能随时额度耗尽）</li>
                 </ul>
               </div>
 

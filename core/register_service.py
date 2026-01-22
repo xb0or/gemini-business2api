@@ -128,11 +128,15 @@ class RegisterService(BaseTaskService[RegisterTask]):
 
         client = None
         if mail_provider == "gptmail":
+            api_key = (config.basic.gptmail_api_key or "").strip()
+            if not api_key:
+                log_cb("error", "❌ GPTMail API Key 缺失（请在配置面板填写）")
+                return {"success": False, "error": "GPTMail API Key 缺失"}
             client = GPTMailClient(
                 base_url=config.basic.gptmail_base_url,
                 proxy=config.basic.proxy,
                 verify_ssl=config.basic.gptmail_verify_ssl,
-                api_key=config.basic.gptmail_api_key,
+                api_key=api_key,
                 log_callback=log_cb,
             )
             log_cb("info", "📧 步骤 1/3: 生成 GPTMail 邮箱...")
@@ -203,7 +207,7 @@ class RegisterService(BaseTaskService[RegisterTask]):
         if mail_provider == "duckmail":
             config_data["mail_password"] = getattr(client, "password", "") or ""
         else:
-            config_data["mail_password"] = ""
+            config_data["mail_password"] = api_key if mail_provider == "gptmail" else ""
 
         accounts_data = load_accounts_from_source()
         updated = False

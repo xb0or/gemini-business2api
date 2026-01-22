@@ -152,11 +152,18 @@ class LoginService(BaseTaskService[LoginTask]):
             client.set_credentials(mail_address)
         elif mail_provider == "gptmail":
             mail_address = account.get("mail_address") or account_id
+            api_key = (account.get("mail_password") or config.basic.gptmail_api_key or "").strip()
+            if not api_key:
+                return {
+                    "success": False,
+                    "email": account_id,
+                    "error": "GPTMail API Key 缺失（可在账号 mail_password 或配置面板填写）",
+                }
             client = GPTMailClient(
                 base_url=config.basic.gptmail_base_url,
                 proxy=config.basic.proxy,
                 verify_ssl=config.basic.gptmail_verify_ssl,
-                api_key=config.basic.gptmail_api_key,
+                api_key=api_key,
                 log_callback=log_cb,
             )
             client.set_credentials(mail_address)
