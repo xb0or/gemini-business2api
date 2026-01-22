@@ -28,6 +28,7 @@ class GPTMailClient:
         self.log_callback = log_callback
 
         self.email: Optional[str] = None
+        self.last_error: Optional[str] = None
 
     def set_credentials(self, email: str, password: Optional[str] = None) -> None:
         self.email = email
@@ -38,6 +39,25 @@ class GPTMailClient:
                 self.log_callback(level, message)
             except Exception:
                 pass
+        if level in ("error", "warning") and message:
+            self.last_error = message
+
+    def _parse_error(self, res: requests.Response) -> str:
+        try:
+            if res.content:
+                body = res.json()
+                if isinstance(body, dict):
+                    err = body.get("error")
+                    if isinstance(err, str) and err.strip():
+                        return err.strip()
+        except Exception:
+            pass
+        try:
+            if res.text:
+                return res.text.strip()[:200]
+        except Exception:
+            pass
+        return ""
 
     def _request(self, method: str, url: str, **kwargs) -> requests.Response:
         headers = kwargs.pop("headers", None) or {}
@@ -74,6 +94,7 @@ class GPTMailClient:
 
     def generate_email(self, domain: Optional[str] = None) -> Optional[str]:
         """生成一个新的邮箱地址。"""
+        self.last_error = None
         if not self.base_url:
             self._log("error", "❌ GPTMail base_url 为空")
             return None
@@ -89,8 +110,27 @@ class GPTMailClient:
         url = f"{self.base_url}/api/generate-email"
         try:
             res = self._request("POST", url, json=payload)
+            if res.status_code == 429:
+                detail = self._parse_error(res)
+                extra = ""
+                if "daily quota exceeded" in (detail or "").lower():
+                    extra = "（GPTMail 日额度已用尽）"
+                if not self.api_key:
+                    extra += "（未配置 GPTMail API Key）"
+                if self.api_key == "gpt-test":
+                    extra += "（当前使用公共测试 Key: gpt-test，额度可能随时耗尽）"
+                self._log(
+                    "error",
+                    f"❌ GPTMail 请求被限流/额度不足: HTTP 429{extra}"
+                    + (f" - {detail}" if detail else ""),
+                )
+                return None
             if res.status_code != 200:
-                self._log("error", f"❌ 生成邮箱失败: HTTP {res.status_code}")
+                detail = self._parse_error(res)
+                self._log(
+                    "error",
+                    f"❌ 生成邮箱失败: HTTP {res.status_code}" + (f" - {detail}" if detail else ""),
+                )
                 return None
             body = res.json() if res.content else {}
             if not body.get("success"):

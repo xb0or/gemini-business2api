@@ -130,7 +130,7 @@
                   v-model="localSettings.basic.gptmail_api_key"
                   type="text"
                   class="w-full rounded-2xl border border-input bg-background px-3 py-2 text-sm"
-                  placeholder="gpt-test"
+                  placeholder="gpt-xxxx"
                 />
               </div>
             </div>

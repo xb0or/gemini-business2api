@@ -156,7 +156,7 @@ class LoginService(BaseTaskService[LoginTask]):
                 base_url=config.basic.gptmail_base_url,
                 proxy=config.basic.proxy,
                 verify_ssl=config.basic.gptmail_verify_ssl,
-                api_key=config.basic.gptmail_api_key or "gpt-test",
+                api_key=config.basic.gptmail_api_key,
                 log_callback=log_cb,
             )
             client.set_credentials(mail_address)

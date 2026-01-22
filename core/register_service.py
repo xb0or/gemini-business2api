@@ -132,14 +132,14 @@ class RegisterService(BaseTaskService[RegisterTask]):
                 base_url=config.basic.gptmail_base_url,
                 proxy=config.basic.proxy,
                 verify_ssl=config.basic.gptmail_verify_ssl,
-                api_key=config.basic.gptmail_api_key or "gpt-test",
+                api_key=config.basic.gptmail_api_key,
                 log_callback=log_cb,
             )
             log_cb("info", "📧 步骤 1/3: 生成 GPTMail 邮箱...")
             email = client.generate_email(domain=domain)
             if not email:
                 log_cb("error", "❌ GPTMail 邮箱生成失败")
-                return {"success": False, "error": "GPTMail 生成邮箱失败"}
+                return {"success": False, "error": client.last_error or "GPTMail 生成邮箱失败"}
             log_cb("info", f"✅ GPTMail 邮箱生成成功: {client.email}")
         else:
             client = DuckMailClient(

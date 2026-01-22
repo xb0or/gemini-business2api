@@ -498,7 +498,7 @@
             <div class="rounded-2xl border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
               <p>默认域名（可在配置面板修改，推荐使用）</p>
               <p v-if="registerMailProvider === 'gptmail'" class="mt-1">
-                GPTMail 需要在配置面板填写 API Key（可使用测试 Key: gpt-test）
+                GPTMail 需要在配置面板填写你自己的 API Key（公共测试 Key 可能随时额度耗尽）
               </p>
               <p class="mt-1">注册失败建议关闭无头浏览器再试</p>
             </div>
