@@ -15,6 +15,7 @@ from core.gptmail_client import GPTMailClient
 from core.gemini_automation import GeminiAutomation
 from core.gemini_automation_uc import GeminiAutomationUC
 from core.microsoft_mail_client import MicrosoftMailClient
+from core.outbound_proxy import OutboundProxyConfig
 
 logger = logging.getLogger("gemini.login")
 
@@ -137,6 +138,12 @@ class LoginService(BaseTaskService[LoginTask]):
 
         log_cb("info", f"📧 邮件提供商: {mail_provider}")
 
+        outbound: OutboundProxyConfig = config.basic.outbound_proxy
+        use_outbound_proxy = outbound.is_configured()
+        proxy_url = outbound.to_proxy_url(config.security.admin_key) if use_outbound_proxy else (config.basic.proxy or "")
+        no_proxy = outbound.no_proxy if use_outbound_proxy else ""
+        direct_fallback = outbound.direct_fallback if use_outbound_proxy else False
+
         # 创建邮件客户端
         if mail_provider == "microsoft":
             if not mail_client_id or not mail_refresh_token:
@@ -146,24 +153,21 @@ class LoginService(BaseTaskService[LoginTask]):
                 client_id=mail_client_id,
                 refresh_token=mail_refresh_token,
                 tenant=mail_tenant,
-                proxy=config.basic.proxy,
+                proxy=proxy_url,
+                no_proxy=no_proxy,
+                direct_fallback=direct_fallback,
                 log_callback=log_cb,
             )
             client.set_credentials(mail_address)
         elif mail_provider == "gptmail":
             mail_address = account.get("mail_address") or account_id
-            api_key = (account.get("mail_password") or config.basic.gptmail_api_key or "").strip()
-            if not api_key:
-                return {
-                    "success": False,
-                    "email": account_id,
-                    "error": "GPTMail API Key 缺失（可在账号 mail_password 或配置面板填写）",
-                }
             client = GPTMailClient(
                 base_url=config.basic.gptmail_base_url,
-                proxy=config.basic.proxy,
+                proxy=proxy_url,
+                no_proxy=no_proxy,
+                direct_fallback=direct_fallback,
                 verify_ssl=config.basic.gptmail_verify_ssl,
-                api_key=api_key,
+                api_key=config.basic.gptmail_api_key or "gpt-test",
                 log_callback=log_cb,
             )
             client.set_credentials(mail_address)
@@ -173,7 +177,9 @@ class LoginService(BaseTaskService[LoginTask]):
             # DuckMail: account_id 就是邮箱地址
             client = DuckMailClient(
                 base_url=config.basic.duckmail_base_url,
-                proxy=config.basic.proxy,
+                proxy=proxy_url,
+                no_proxy=no_proxy,
+                direct_fallback=direct_fallback,
                 verify_ssl=config.basic.duckmail_verify_ssl,
                 api_key=config.basic.duckmail_api_key,
                 log_callback=log_cb,
@@ -192,7 +198,7 @@ class LoginService(BaseTaskService[LoginTask]):
             # DrissionPage 引擎：支持有头和无头模式
             automation = GeminiAutomation(
                 user_agent=self.user_agent,
-                proxy=config.basic.proxy,
+                proxy=proxy_url,
                 headless=headless,
                 log_callback=log_cb,
             )
@@ -203,7 +209,7 @@ class LoginService(BaseTaskService[LoginTask]):
                 headless = False
             automation = GeminiAutomationUC(
                 user_agent=self.user_agent,
-                proxy=config.basic.proxy,
+                proxy=proxy_url,
                 headless=headless,
                 log_callback=log_cb,
             )

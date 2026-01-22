@@ -54,6 +54,16 @@ export interface Settings {
     api_key?: string
     base_url?: string
     proxy?: string
+    outbound_proxy?: {
+      enabled: boolean
+      protocol: 'http' | 'https' | 'socks5' | 'socks5h' | string
+      host: string
+      port: number
+      username?: string
+      password?: string
+      no_proxy?: string
+      direct_fallback?: boolean
+    }
     duckmail_base_url?: string
     duckmail_api_key?: string
     duckmail_verify_ssl?: boolean

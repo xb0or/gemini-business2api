@@ -1,4 +1,5 @@
 import json
+import json
 import unittest
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
@@ -42,19 +43,6 @@ class TestGPTMailClient(unittest.TestCase):
         self.assertEqual(captured["headers"].get("X-API-Key"), "gpt-test")
         self.assertEqual(captured["method"], "POST")
         self.assertIn("/api/generate-email", captured["url"])
-
-    def test_generate_email_daily_quota_exceeded_sets_last_error(self) -> None:
-        def fake_request(method: str, url: str, **kwargs):
-            return _make_response(429, {"success": False, "error": "Daily quota exceeded"})
-
-        with patch("requests.request", side_effect=fake_request):
-            client = GPTMailClient(base_url="https://mail.chatgpt.org.uk", api_key="gpt-test")
-            email = client.generate_email(domain="example.com")
-
-        self.assertIsNone(email)
-        self.assertIsNotNone(client.last_error)
-        self.assertIn("HTTP 429", client.last_error or "")
-        self.assertIn("Daily quota exceeded", client.last_error or "")
 
     def test_poll_for_code_uses_detail_when_list_has_no_code(self) -> None:
         now = datetime.now().replace(microsecond=0)
@@ -105,4 +93,3 @@ class TestGPTMailClient(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

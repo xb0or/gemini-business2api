@@ -4,10 +4,12 @@ from datetime import datetime, timedelta
 from email import message_from_bytes
 from email.utils import parsedate_to_datetime
 from typing import Optional
+from urllib.parse import urlparse
 
 import requests
 
 from core.mail_utils import extract_verification_code
+from core.outbound_proxy import no_proxy_matches
 
 
 class MicrosoftMailClient:
@@ -17,12 +19,16 @@ class MicrosoftMailClient:
         refresh_token: str,
         tenant: str = "consumers",
         proxy: str = "",
+        no_proxy: str = "",
+        direct_fallback: bool = False,
         log_callback=None,
     ) -> None:
         self.client_id = client_id
         self.refresh_token = refresh_token
         self.tenant = tenant or "consumers"
-        self.proxies = {"http": proxy, "https": proxy} if proxy else None
+        self.proxy_url = (proxy or "").strip()
+        self.no_proxy = no_proxy or ""
+        self.direct_fallback = bool(direct_fallback)
         self.log_callback = log_callback
         self.email: Optional[str] = None
 
@@ -38,7 +44,16 @@ class MicrosoftMailClient:
         }
         try:
             self._log("info", f"🔑 正在获取 Microsoft OAuth 令牌...")
-            res = requests.post(url, data=data, proxies=self.proxies, timeout=15)
+            proxies = None
+            if self.proxy_url:
+                host = (urlparse(url).hostname or "").lower()
+                if not (host and no_proxy_matches(host, self.no_proxy)):
+                    proxies = {"http": self.proxy_url, "https": self.proxy_url}
+
+            res = requests.post(url, data=data, proxies=proxies, timeout=15)
+            if res.status_code == 407 and proxies and self.direct_fallback:
+                self._log("warning", "⚠️ 代理认证失败(407)，尝试直连重试一次")
+                res = requests.post(url, data=data, proxies=None, timeout=15)
             if res.status_code != 200:
                 self._log("error", f"❌ Microsoft 令牌获取失败: HTTP {res.status_code}")
                 return None
@@ -50,6 +65,16 @@ class MicrosoftMailClient:
             self._log("info", "✅ Microsoft OAuth 令牌获取成功")
             return token
         except Exception as exc:
+            if self.proxy_url and self.direct_fallback:
+                self._log("warning", f"⚠️ 代理请求异常，尝试直连重试一次: {type(exc).__name__}")
+                try:
+                    res = requests.post(url, data=data, proxies=None, timeout=15)
+                    if res.status_code != 200:
+                        return None
+                    payload = res.json() if res.content else {}
+                    return payload.get("access_token")
+                except Exception:
+                    pass
             self._log("error", f"❌ Microsoft 令牌获取异常: {exc}")
             return None
 
