@@ -13,6 +13,7 @@ from core.duckmail_client import DuckMailClient
 from core.gptmail_client import GPTMailClient
 from core.gemini_automation import GeminiAutomation
 from core.gemini_automation_uc import GeminiAutomationUC
+from core.outbound_proxy import OutboundProxyConfig
 
 logger = logging.getLogger("gemini.register")
 
@@ -127,10 +128,18 @@ class RegisterService(BaseTaskService[RegisterTask]):
         log_cb("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         client = None
+        outbound: OutboundProxyConfig = config.basic.outbound_proxy
+        use_outbound_proxy = outbound.is_configured()
+        proxy_url = outbound.to_proxy_url(config.security.admin_key) if use_outbound_proxy else (config.basic.proxy or "")
+        no_proxy = outbound.no_proxy if use_outbound_proxy else ""
+        direct_fallback = outbound.direct_fallback if use_outbound_proxy else False
+
         if mail_provider == "gptmail":
             client = GPTMailClient(
                 base_url=config.basic.gptmail_base_url,
-                proxy=config.basic.proxy,
+                proxy=proxy_url,
+                no_proxy=no_proxy,
+                direct_fallback=direct_fallback,
                 verify_ssl=config.basic.gptmail_verify_ssl,
                 api_key=config.basic.gptmail_api_key or "gpt-test",
                 log_callback=log_cb,
@@ -144,7 +153,9 @@ class RegisterService(BaseTaskService[RegisterTask]):
         else:
             client = DuckMailClient(
                 base_url=config.basic.duckmail_base_url,
-                proxy=config.basic.proxy,
+                proxy=proxy_url,
+                no_proxy=no_proxy,
+                direct_fallback=direct_fallback,
                 verify_ssl=config.basic.duckmail_verify_ssl,
                 api_key=config.basic.duckmail_api_key,
                 log_callback=log_cb,
@@ -167,7 +178,7 @@ class RegisterService(BaseTaskService[RegisterTask]):
             # DrissionPage 引擎：支持有头和无头模式
             automation = GeminiAutomation(
                 user_agent=self.user_agent,
-                proxy=config.basic.proxy,
+                proxy=proxy_url,
                 headless=headless,
                 log_callback=log_cb,
             )
@@ -178,7 +189,7 @@ class RegisterService(BaseTaskService[RegisterTask]):
                 headless = False
             automation = GeminiAutomationUC(
                 user_agent=self.user_agent,
-                proxy=config.basic.proxy,
+                proxy=proxy_url,
                 headless=headless,
                 log_callback=log_cb,
             )

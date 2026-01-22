@@ -4,10 +4,12 @@ import string
 import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 import requests
 
 from core.mail_utils import extract_verification_code
+from core.outbound_proxy import no_proxy_matches
 
 
 class GPTMailClient:
@@ -17,13 +19,17 @@ class GPTMailClient:
         self,
         base_url: str = "https://mail.chatgpt.org.uk",
         proxy: str = "",
+        no_proxy: str = "",
+        direct_fallback: bool = False,
         verify_ssl: bool = True,
         api_key: str = "",
         log_callback=None,
     ) -> None:
         self.base_url = (base_url or "").rstrip("/")
         self.verify_ssl = verify_ssl
-        self.proxies = {"http": proxy, "https": proxy} if proxy else None
+        self.proxy_url = (proxy or "").strip()
+        self.no_proxy = no_proxy or ""
+        self.direct_fallback = bool(direct_fallback)
         self.api_key = (api_key or "").strip()
         self.log_callback = log_callback
 
@@ -51,15 +57,31 @@ class GPTMailClient:
         if "json" in kwargs and kwargs["json"] is not None:
             self._log("info", f"📦 请求体: {kwargs['json']}")
 
+        proxies = None
+        if self.proxy_url:
+            host = (urlparse(url).hostname or "").lower()
+            if not (host and no_proxy_matches(host, self.no_proxy)):
+                proxies = {"http": self.proxy_url, "https": self.proxy_url}
+
         try:
             res = requests.request(
                 method,
                 url,
-                proxies=self.proxies,
+                proxies=proxies,
                 verify=self.verify_ssl,
                 timeout=kwargs.pop("timeout", 15),
                 **kwargs,
             )
+            if res.status_code == 407 and proxies and self.direct_fallback:
+                self._log("warning", "⚠️ 代理认证失败(407)，尝试直连重试一次")
+                res = requests.request(
+                    method,
+                    url,
+                    proxies=None,
+                    verify=self.verify_ssl,
+                    timeout=15,
+                    **kwargs,
+                )
             self._log("info", f"📥 收到响应: HTTP {res.status_code}")
             log_body = os.getenv("GPTMAIL_LOG_BODY", "").strip().lower() in ("1", "true", "yes", "y", "on")
             if res.content and (log_body or res.status_code >= 400):
@@ -69,6 +91,18 @@ class GPTMailClient:
                     pass
             return res
         except Exception as exc:
+            if proxies and self.direct_fallback:
+                self._log("warning", f"⚠️ 代理请求失败，尝试直连重试一次: {type(exc).__name__}")
+                res = requests.request(
+                    method,
+                    url,
+                    proxies=None,
+                    verify=self.verify_ssl,
+                    timeout=kwargs.pop("timeout", 15),
+                    **kwargs,
+                )
+                self._log("info", f"📥 收到响应(直连): HTTP {res.status_code}")
+                return res
             self._log("error", f"❌ 网络请求失败: {exc}")
             raise
 
@@ -209,4 +243,3 @@ class GPTMailClient:
 
         self._log("error", "❌ 验证码获取超时")
         return None
-
